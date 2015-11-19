@@ -156,13 +156,14 @@ function get_subordinate($db,$userid, $depth=5,$ecludeduserid=array(),$entity='1
         foreach ($tab as $timesheet) {
             $row=unserialize($timesheet);
             $Lines.=$row->getFormLine( $yearWeek,$i,$headers,$whitelistmode);
-            $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=array();
-            $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=$row->getTaskTab(); 
+            $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=  $timesheet;
+            //$_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=$row->getTaskTab(); 
             $i++;
         }
-        $Lines .= '<input type="hidden" name="timestamp" value="'.$timestamp."\"/>\n";
+        $Lines .= '<tr style="display:none"><td><input type="hidden" name="timestamp" value="'.$timestamp."\"/>\n";
         $Lines .= '<input type="hidden" id="numberOfLines" name="numberOfLines" value="'.count($tab)."\"/>\n";
-        $Lines .= '<input type="hidden" name="yearWeek" value="'.$yearWeek.'" />'; 
+        $Lines .= '<input type="hidden" id="tsApproval" name="tsApproval" value="0'."\"/>\n";
+        $Lines .= '<input type="hidden" name="yearWeek" value="'.$yearWeek.'" /></td></tr>'; 
         return $Lines;
  }    
   /*
@@ -174,28 +175,9 @@ function get_subordinate($db,$userid, $depth=5,$ecludeduserid=array(),$entity='1
  *  @param     int              	$timestamp          timestamp
  *  @return     int                                                        number of tasktime creatd/changed
  */
- function postActuals($db,$user,$tabPost,$timestamp)
+ function postActuals($db,$user,$tabPost,$timestamp,$tsAproval)
 {
-    
-    $storedTab=array();
-    $storedTab=$_SESSION["timestamps"][$timestamp];
-    if(isset($storedTab["YearWeek"])) {
-        $yearWeek=$storedTab["YearWeek"];
-    }else {
-        return -1;
-    }
-    $storedTasks=array();
-    if(isset($storedTab['tasks'])) {
-        $storedTasks=$storedTab['tasks'];
-    }else {
-        return -2;
-    }
-    if(isset($storedTab['weekDays'])) {
-        $storedWeekdays=$storedTab['weekDays'];
-    }else {
-        return -3;
-    }
-        
+
     $ret=0;
     $tmpRet=0;
     $_SESSION['timeSpendCreated']=0;
@@ -204,104 +186,26 @@ function get_subordinate($db,$userid, $depth=5,$ecludeduserid=array(),$entity='1
         /*
          * For each task store in matching the session timestamp
          */
-$userid=  is_object($user)?$user->id:$user;
-foreach($storedTasks as  $taskId => $taskItem)
+    $userid=  is_object($user)?$user->id:$user;
+  foreach($_SESSION["timestamps"][$timestamp]['tasks'] as  $taskId => $serializedtaskItem)
     {
-      //  $taskId=$taskItem["id"];
-        $tasktimeIds=array();
-        $tasktimeIds=$taskItem["taskTimeId"];
-        $tasktime=new timesheet($db,$taskId);
-        $tasktime->timespent_fk_user=$userid;
-        $tasktime->fetch($taskId);
-        dol_syslog("Timesheet::Submit.php::postActualsSecured  task=".$tasktime->id, LOG_DEBUG);
-        //use the data stored
-        //$tasktime->initTimeSheet($taskItem['weekWorkLoad'], $taskItem['taskTimeId']);
-        //refetch actuals
-        $tasktime->getActuals($yearWeek, $userid); 
-        /*
-         * for each day of the task store in matching the session timestamp
-         */
-        //foreach($taskItem['taskTimeId'] as $dayKey => $tasktimeid)
-        foreach($tabPost[$taskId] as $dayKey => $wkload)
-        {
-            dol_syslog("Timesheet::Submit.php::postActualsSecured  task = ".$taskId." tabPost[".$dayKey."]=".$wkload, LOG_DEBUG);
+        if(isset($tabPost[$taskId])){
+            $taskItem= unserialize($serializedtaskItem);
+            $taskItem->db=$db;
+          //  $taskId=$taskItem["id"];
 
-            $tasktimeid=$tasktimeIds[$dayKey];
-            
-            $ret+=postTaskTimeActual($user,$tasktime,$tasktimeid,$wkload,$storedWeekdays[$dayKey]);
+            $ret+=$taskItem->updateTimesheet($user,$tabPost[$taskId],$tsAproval);
+            if($ret!=$tmpRet){ // something changed so need to updae the total duration
+                $taskItem->updateTimeUsed();
+            }
+            $tmpRet=$ret;
         }
-        if($ret!=$tmpRet){ // something changed so need to updae the total duration
-            $tasktime->updateTimeUsed();
-        }
-        $tmpRet=$ret;
     } 
     unset($_SESSION["timestamps"][$timestamp]);
     return $ret;
 }
 
-/*
- * function to post on task_time
- * 
- *  @param    int              	$user                    user id to fetch the timesheets
- *  @param    object             	$tasktime             timesheet object, (task)
- *  @param    array(int)              	$tasktimeid          the id of the tasktime if any
- *  @param     int              	$timestamp          timesheetweek
- *  @return     int                                                       1 => succes , 0 => Failure
- */
-function postTaskTimeActual($user,$tasktime,$tasktimeid,$wkload,$date)
-{
 
-   $ret=0;
-   if(TIMESHEET_TIME_TYPE=="days")
-   {
-      $duration=$wkload*TIMESHEET_DAY_DURATION*3600;
-   }else
-   {
-    $durationTab=date_parse($wkload);
-    $duration=$durationTab['minute']*60+$durationTab['hour']*3600;
-   }
-    dol_syslog("Timesheet::Submit.php::postTaskTimeActualSecured   timespent_duration=".$duration." taskTimeId=".$tasktimeid, LOG_DEBUG);
-
-    if($tasktimeid>0)
-    {
-        $tasktime->fetchTimeSpent($tasktimeid); ////////////////////////////
-        $tasktime->timespent_old_duration=$tasktime->timespent_duration;
-        $tasktime->timespent_duration=$duration; 
-        if($tasktime->timespent_old_duration!=$duration)
-        {
-            if($tasktime->timespent_duration>0){ 
-                dol_syslog("Timesheet::Submit.php  taskTimeUpdate", LOG_DEBUG);
-                if($tasktime->updateTimeSpent($user,0)>=0)
-                {
-                    $ret++; 
-                    $_SESSION['timeSpendModified']++;
-                }
-            }else {
-                dol_syslog("Timesheet::Submit.php  taskTimeDelete", LOG_DEBUG);
-                if($tasktime->delTimeSpent($user,0)>=0)
-                {
-                    $ret++;
-                    $_SESSION['timeSpendDeleted']++;
-                }
-            }
-        }
-    } elseif ($duration>0)
-    { 
-        $tasktime->timespent_duration=$duration; 
-        //FIXME
-        $tasktime->timespent_date=strtotime($date);
-        if(isset( $tasktime->timespent_datehour))
-        {
-            $tasktime->timespent_datehour=strtotime($date.'+ 8 hours');
-        }
-        if($tasktime->addTimeSpent($user,0)>=0)
-        {
-            $ret++;
-            $_SESSION['timeSpendCreated']++;
-        }
-    }
-    return $ret;
-}
 
 /*
  * function to post on task_time
@@ -349,8 +253,9 @@ function GetTimeSheetXML($userid,$yearWeek,$whitelistmode)
         $row=unserialize($timesheet);
         $xml.= $row->getXML($yearWeek,$i);//FIXME
        // $Lines.=$row->getFormLine( $yearWeek,$i,$headers);
-        $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=array();
-        $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=$row->getTaskTab(); 
+        //$_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=array();
+        $_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=  $timesheet;
+        //$_SESSION["timestamps"][$timestamp]['tasks'][$row->id]=$row->getTaskTab(); 
         $i++;
     }  
     $xml.="\t</tasks>\n</timesheet>\n";

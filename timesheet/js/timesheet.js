@@ -185,4 +185,16 @@ function updateTotal(days,mode){
     
 }
 
-   
+ function sendApproval(){
+    document.getElementById('tsApproval').value=1;
+    document.getElementById('tsForm').submit();
+ }
+ 
+  function resetForm(mode){
+    document.getElementById('tsForm').reset();
+    for(var i=0;i<7;i++){
+        updateTotal(i,mode);
+    }
+    
+ }
+ 

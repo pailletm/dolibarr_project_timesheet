@@ -20,15 +20,17 @@
 
 -- this table is used to store the timesheet favorit
 
-CREATE TABLE llx_timesheet_whitelist 
+CREATE TABLE llx_timesheet_approval
 (
 rowid                 integer NOT NULL AUTO_INCREMENT,
 fk_user               integer NOT NULL,
-fk_project            integer NOT NULL,   
-fk_project_task       integer,               
-subtask               BOOLEAN default FALSE,
-date_start            date default NULL,
-date_end              date default NULL,
+fk_project_task       integer NOT NULL,               
+yearweek              integer NOT NULL,
+status                enum('PENDING','REJECTED','APPROVED') DEFAULT 'PENDING',
+status_team           enum('PENDING','REJECTED','APPROVED') DEFAULT 'PENDING',
+status_project        enum('PENDING','REJECTED','APPROVED') DEFAULT 'PENDING',
+fk_user_approval_team               integer default NULL,
+fk_user_approval_project              integer default NULL,
 PRIMARY KEY (rowid)
 ) 
 ENGINE=innodb;

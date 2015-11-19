@@ -48,7 +48,7 @@ $yearWeek           = GETPOST('yearweek');
 $ajax               = GETPOST('ajax');
 $xml               = GETPOST('xml');
 $optioncss = GETPOST('optioncss','alpha');
-
+$tsAproval = GETPOST('tsApproval','int');
 
 //$toDate                 = GETPOST('toDate');
 $toDate                 = GETPOST('toDate');
@@ -111,7 +111,7 @@ switch($action)
             if (!empty($_POST['task']))
             {    
                     
-                    $ret =postActuals($db,$user,$_POST['task'],$timestamp);
+                    $ret =postActuals($db,$user,$_POST['task'],$timestamp,$tsAproval);
                     if($ret>0)
                     {
                         if($_SESSION['timeSpendCreated'])setEventMessage($langs->trans("NumberOfTimeSpendCreated").$_SESSION['timeSpendCreated']);
@@ -170,8 +170,8 @@ if ($optioncss != '') $Form.=  '&amp;optioncss='.$optioncss;
 $Form.=  '">'.$langs->trans("NextWeek").' &gt;&gt; </a>'."\n\t\t</th>\n\t</tr>\n </table>\n";
 
 //timesheet
-$Form .='<form name="timesheet" action="?action=submit&wlm='.$whitelistmode.'&yearweek='.$yearWeek.'" method="POST" >'; 
-$Form .="\n<table class=\"noborder\" width=\"100%\">\n";
+$Form .='<form id="tsForm" name="timesheet" action="?action=submit&wlm='.$whitelistmode.'&yearweek='.$yearWeek.'" method="POST" >'; 
+$Form .="\n<table  class=\"noborder\" width=\"100%\">\n";
 //headers
 
 $headers=explode('||', TIMESHEET_HEADERS);
@@ -216,14 +216,16 @@ $Form .='<th colspan="'.$num.'" align="right"> TOTAL </th>
 </tr>';
 
 $Form .="</table >\n";
-
+$timetype=TIMESHEET_TIME_TYPE;
 //form button
 $Form .= '<input type="submit" value="'.$langs->trans('Save')."\" />\n";
+$Form .= '<input type="button" value="'.$langs->trans('SendApproval');
+$Form .= '" onClick="sendApproval()"'."/>\n";
 $Form .= '<input type="button" value="'.$langs->trans('Cancel');
-$Form .= '" onClick="document.location.href=\'?action=list&yearweek='.$yearWeek."\"/>\n";
+$Form .= '" onClick="resetForm(\''.$timetype."')\"/>\n";
 $Form .= "</form>\n";
 //Javascript
-$timetype=TIMESHEET_TIME_TYPE;
+
 //$Form .= ' <script type="text/javascript" src="timesheet.js"></script>'."\n";
 $Form .= '<script type="text/javascript">'."\n\t";
 $Form .= 'updateTotal(0,\''.$timetype.'\');'."\n\t";

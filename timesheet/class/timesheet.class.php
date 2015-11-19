@@ -15,7 +15,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+define('TIMESHEET_COLOR_PENDING', '#f0f0ff');
+define('TIMESHEET_COLOR_APPROVED', '#f0fff0');
+define('TIMESHEET_COLOR_REJECTED', '#ff0000');
+define('TIMESHEET_COLOR_ERROR', '#f0ffff');
 
 /*Class to handle a line of timesheet*/
 #require_once('mysql.class.php');
@@ -23,12 +26,29 @@ require_once DOL_DOCUMENT_ROOT."/core/class/commonobject.class.php";
 require_once DOL_DOCUMENT_ROOT.'/projet/class/task.class.php';
 //dol_include_once('/timesheet/class/projectTimesheet.class.php');
 //require_once './projectTimesheet.class.php';
+class tasktime
+{
+    var $id=0;
+    var $date;
+    var $hour;
+    var $duration=0;
+    //var $status;
+//    var $fk_user_approuver;
+        public function __construct($taskId) 
+	{
+		$this->id=$taskId;
+	}
+}
+
 
 class timesheet extends Task 
 {
         private $ProjectTitle		=	"Not defined";
-        private $taskTimeId = array(0=>0,0,0,0,0,0,0);
-        private $weekWorkLoad  = array(0=>0,0,0,0,0,0,0);
+        private $status = NULL;
+        private $yearWeek;
+        //private $taskTimeId = array(0=>0,0,0,0,0,0,0);
+        var $taskTimeList=array();
+        //private $weekWorkLoad  = array(0=>0,0,0,0,0,0,0);
         private $fk_project2;
         private $taskParentDesc;
         private $companyName;
@@ -119,22 +139,91 @@ class timesheet extends Task
                 return -1;
         }	
     }
+ /*
+    * function to check the approval status of a ts
+    * 
+     *  @return     string     Status of the   
+    */ 
 
-    public function getActuals( $yearWeek,$userid)
+    public function getApprovalSatus(){
+        $this->status=NULL;
+        $sql='SELECT status';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'timesheet_approval';
+        $sql .= ' WHERE fk_user="'.$this->timespent_fk_user.'"';
+        $sql .= ' AND fk_project_task="'.$this->id.'"';
+        $sql .= ' AND yearweek="'.str_replace('W', '', $this->yearWeek).'"';
+        $resql=$this->db->query($sql);
+        if ($resql)
+        {
+
+                $num = $this->db->num_rows($resql);
+                if($num)
+                {
+                        $error=0;
+                        $obj = $this->db->fetch_object($resql);
+                        $this->status=$obj->status;
+                }
+                    
+                
+                $this->db->free($resql);
+                return 1;
+         }
+        else
+        {
+                $this->error="Error ".$this->db->lasterror();
+                dol_syslog(get_class($this)."::fetch ".$this->error, LOG_ERR);
+
+                return -1;
+        }
+    }
+    /*
+    * function to send a request for approval status of a ts
+    * 
+     *  @return     string     Status of the   
+    */ 
+
+    public function askApproval(){
+        if(($this->status==NULL ||$this->status== 'REJECTED' )){
+            $sql='INSERT INTO '.MAIN_DB_PREFIX.'timesheet_approval';
+            $sql .= ' (fk_user,fk_project_task,status,yearweek) ';
+            $sql .= ' VALUES ('.$this->timespent_fk_user.','.$this->id.',\'PENDING\',\''.str_replace('W', '', $this->yearWeek).'\')';
+            $resql=$this->db->query($sql);
+            if ($resql)
+            {
+
+                    return 1;
+             }
+            else
+            {
+                    $this->error="Error ".$this->db->lasterror();
+                    dol_syslog(get_class($this)."::fetch ".$this->error, LOG_ERR);
+
+                    return -1;
+            }
+        }else
+            return -1;
+    }
+      public function getActuals( $yearWeek,$userid)
     {
-
-        $sql = "SELECT ptt.rowid, ptt.task_duration, ptt.task_date";	
-        $sql .= " FROM ".MAIN_DB_PREFIX."projet_task_time AS ptt";
+        $this->taskTimeList=array();
+        $this->yearWeek=$yearWeek;
+        $this->timespent_fk_user=$userid;
+        $this->getApprovalSatus();
+        for($i=0;$i<7;$i++){
+            $this->taskTimeList[$i]=new tasktime(0);
+        }
+               
+        $sql = 'SELECT ptt.rowid, ptt.task_duration, ptt.task_date';
+        $sql .= ' FROM '.MAIN_DB_PREFIX.'projet_task_time AS ptt';
         $sql .= " WHERE ptt.fk_task='".$this->id."' ";
         $sql .= " AND (ptt.fk_user='".$userid."') ";
        # $sql .= "AND WEEKOFYEAR(ptt.task_date)='".date('W',strtotime($yearWeek))."';";
         #$sql .= "AND YEAR(ptt.task_date)='".date('Y',strtotime($yearWeek))."';";
         $sql .= " AND (ptt.task_date>=FROM_UNIXTIME('".strtotime($yearWeek)."')) ";
-        $sql .= " AND (ptt.task_date<FROM_UNIXTIME('".strtotime($yearWeek.' + 7 days')."'));";
+        $sql .= " AND (ptt.task_date<FROM_UNIXTIME('".strtotime($yearWeek.' + 7 days')."'))";
 
         dol_syslog(get_class($this)."::fetchActuals sql=".$sql, LOG_DEBUG);
-
-
+        
         $resql=$this->db->query($sql);
         if ($resql)
         {
@@ -149,10 +238,14 @@ class timesheet extends Task
                         $day=intval(date('N',strtotime($obj->task_date)))-1;
                         //$day=(intval(date('w',strtotime($obj->task_date)))+1)%6;
                         // if several tasktime in one day then only the last is used
-                        $this->weekWorkLoad[$day] =  $obj->task_duration;
-                        $this->taskTimeId[$day]= ($obj->rowid)?($obj->rowid):0;
+                            
+                        $this->taskTimeList[$day]->id=$obj->rowid;
+                        $this->taskTimeList[$day]->duration=  $obj->task_duration;
+                        $this->taskTimeList[$day]->status=$obj->status;
+                        //$this->taskTimeList[$day]->date=$->task_date;
                         $i++;
                 }
+                
                 $this->db->free($resql);
                 return 1;
          }
@@ -184,8 +277,7 @@ class timesheet extends Task
     $timetype=TIMESHEET_TIME_TYPE;
     $dayshours=TIMESHEET_DAY_DURATION;
     $hidezeros=TIMESHEET_HIDE_ZEROS;
-    $hidden=false;
-    if(($whitelistemode==0 && !$this->listed)||($whitelistemode==1 && $this->listed))$hidden=true;
+    $hidden=(($whitelistemode==0 && !$this->listed)||($whitelistemode==1 && $this->listed));
     
     if(!$hidden){
         $html= '<tr class="'.(($lineNumber%2=='0')?'pair':'impair').'">'."\n"; 
@@ -232,33 +324,53 @@ class timesheet extends Task
     }
     
   // day section
-        foreach ($this->weekWorkLoad as $dayOfWeek => $dayWorkLoadSec)
+        foreach ($this->taskTimeList  as $dayOfWeek => $taskTime)
         {
-                $today= strtotime($yearWeek.' +'.($dayOfWeek).' day  ');
+                $color='';
+                $today= strtotime($this->yearWeek.' +'.($dayOfWeek).' day  ');
+                $isOpened=((empty($this->date_start) || ($this->date_start <= $today +86399)) && (empty($this->date_end) ||($this->date_end >= $today )));
                 # to avoid editing if the task is closed 
+                
                 if ($timetype=="days")
                 {
-                    $dayWorkLoad=$dayWorkLoadSec/3600/$dayshours;
+                    $dayWorkLoad=$taskTime->duration/3600/$dayshours;
                 }else {
-                    $dayWorkLoad=date('H:i',mktime(0,0,$dayWorkLoadSec));
+                    $dayWorkLoad=date('H:i',mktime(0,0,$taskTime->duration));
                 }
-              
-                if($hidden){
-                    $html .= ' <input type="hidden" id="task['.$lineNumber.']['.$dayOfWeek.']" value="'.$dayWorkLoad.'" ';
-                    $html .= 'name="task['.$this->id.']['.$dayOfWeek.']" >'."\n";
-                }else if((empty($this->date_start) || ($this->date_start <= $today +86399)) && (empty($this->date_end) ||($this->date_end >= $today )))
-                {             
-                    $html .= '<th><input type="text" id="task['.$lineNumber.']['.$dayOfWeek.']" ';
-                    $html .= 'name="task['.$this->id.']['.$dayOfWeek.']" ';
-                    $html .=' value="'.((($hidezeros==1) && ($dayWorkLoadSec==0))?"":$dayWorkLoad);
-                    $html .='" maxlength="5" style="width: 90%;'.(($dayWorkLoadSec==0)?'':' background:#f0fff0; ').'" ';
-                    $html .='onkeypress="return regexEvent(this,event,\'timeChar\')" ';
+                if($this->status=='REJECTED'){
+                    $color=' background:'.TIMESHEET_COLOR_REJECTED.'; ';
+                }else if($this->status=='APPROVED'){
+                    $color=' background:'.TIMESHEET_COLOR_APPROVED.'; ';
+                    $isOpened=false;
+                }else if($this->status=='PENDING'){
+                    $color=' background:'.TIMESHEET_COLOR_PENDING.'; ';
+                    $isOpened=false;
+                }else if($this->duration!=0){
+                    $color=' background:#00ffff; ';
+                }
+
+                //if($hidden){
+                //    $html .= ' <input type="hidden" id="task['.$lineNumber.']['.$dayOfWeek.']" value="'.$dayWorkLoad.'" ';
+                 //   $html .= 'name="task['.$this->id.']['.$dayOfWeek.']" />'."\n";
+                //}else //if($isOpened)
+                //{             
+                    $html .= '<th '.(($hidden)?'style="display:none"':'');
+                    $html .='><input type="text" id="task['.$lineNumber.']['.$dayOfWeek.']"';
+                    if(!$isOpened)$html .=' disabled="disabled"';
+                    $html .= ' name="task['.$this->id.']['.$dayOfWeek.']" ';
+                    $html .=' value="'.((($hidezeros==1) && ($taskTime->duration==0))?"":$dayWorkLoad);
+                    $html .='" maxlength="5" style="width: 90%;'.$color;
+                    $html .=' " onkeypress="return regexEvent(this,event,\'timeChar\')" ';
                     $html .= 'onblur="regexEvent(this,event,\''.$timetype.'\');updateTotal('.$dayOfWeek.',\''.$timetype.'\')" />';
                     $html .= "</th>\n";                    
-                }else
+                /*}else
                 {
-                    $html .= '<th> <div id="task['.$this->id.']['.$dayOfWeek.']">'.$dayWorkLoad."</div></th>\n";
-                }
+                    $html .= '<th style="'.$color.'"> ';
+                    $html .= ' <input type="hidden" id="task['.$lineNumber.']['.$dayOfWeek.']" value="'.$dayWorkLoad.'" ';
+                    $html .= 'name="task['.$this->id.']['.$dayOfWeek.']" />'."\n";
+                    $html .='<div id="task['.$this->id.']['.$dayOfWeek.']"  >'.$dayWorkLoad."</div></th>\n";
+                    
+                }*/
         }
         if(!$hidden)$html .= "</tr>\n";
         return $html;
@@ -313,22 +425,21 @@ class timesheet extends Task
 
         
   // day section
-        foreach ($this->weekWorkLoad as $dayOfWeek => $dayWorkLoadSec)
+        foreach ($this->taskTimeList  as $dayOfWeek => $taskTime)
         {
-                $today= strtotime($yearWeek.' +'.($dayOfWeek).' day  ');
+                $today= strtotime($this->yearWeek.' +'.($dayOfWeek).' day  ');
                 # to avoid editing if the task is closed 
                 if ($timetype=="days")
                 {
-                    $dayWorkLoad=$dayWorkLoadSec/3600/$dayshours;
+                    $dayWorkLoad=$taskTime->duration/3600/$dayshours;
                 }else {
-                    $dayWorkLoad=date('H:i',mktime(0,0,$dayWorkLoadSec));
+                    $dayWorkLoad=date('H:i',mktime(0,0,$taskTime->duration));
                 }
                 $open='0';
-                if((empty($this->date_start) || ($this->date_start <= $today +86399)) && (empty($this->date_end) ||($this->date_end >= $today )))
-                {             
-                    $open='1';                   
+                if($this->status== 'REJECTED' || $this->status== NULL ){
+                    $open=((empty($this->date_start) || ($this->date_start <= $today +86399)) && (empty($this->date_end) ||($this->date_end >= $today )));
                 }
-                $xml .= "\t\t\t<day col=\"{$dayOfWeek}\" open=\"{$open}\"> {$dayWorkLoad}</day>\n";
+                $xml .= "\t\t\t<day col=\"{$dayOfWeek}\" open=\"{$open}\" status=\"{$taskTime->status}\"> {$dayWorkLoad}</day>\n";
                 
         } 
         $xml.="\t\t</task>\n"; 
@@ -359,28 +470,8 @@ class timesheet extends Task
             }
     }
  * */
- 
-    public function getTaskTab()
-    {
-        $taskTab=array();
-        //$taskTab[]='id';
-        $taskTab['id']=$this->id;
-        //$taskTab[]='weekWorkLoad';
-        $taskTab['weekWorkLoad']=array();
-        $weekWorkload=array();
-        
-        foreach((array)$this->weekWorkload as $key => $value)
-        {
-            $taskTab['weekWorkLoad'][$key]=$value;
-        }
-        //$taskTab[]='taskTimeId';
-        $taskTab['taskTimeId']=array();
-        foreach($this->taskTimeId as $key => $value)
-        {
-           $taskTab['taskTimeId'][$key]=$this->taskTimeId[$key];
-        }
-        return $taskTab;
-    }
+
+    
 public function updateTimeUsed()
     {
           $sql ="UPDATE ".MAIN_DB_PREFIX."projet_task AS pt "
@@ -414,11 +505,75 @@ public function updateTimeUsed()
         //return '00:00';
           
     }
-	
+    
  /*
  * function to genegate the timesheet tab
  * 
- *  @param    object             	$db                 db Object to do the querry
+ *  @param    int              	$user                   user id to fetch the timesheets
+ *  @param     int              	$updateTab      array with the new 
+ *  @param     int              	$approval      0- don't ask, 1- ask for an approval 
+ *  @return     array(string)                                             array of timesheet (serialized)
+ */
+ function updateTimesheet($user,$updateTab,$approval=0){  
+     $ret=0;
+     if(isset($updateTab) && is_array($updateTab)){
+        foreach($this->taskTimeList  as $day => $taskTime){
+            
+            if(TIMESHEET_TIME_TYPE=="days")
+            {
+                $duration=$updateTab[$day]*TIMESHEET_DAY_DURATION*3600;
+            }else
+            {
+              $durationTab=date_parse($updateTab[$day]);
+              $duration=$durationTab['minute']*60+$durationTab['hour']*3600;
+            }
+            $update=($duration==$taskTime->duration)?false:true;   
+            $new=($taskTime->id==0)?true:false;      
+            $date=strtotime($this->yearWeek.' +'.$day.' day  +8 hours');
+                //$this->timespent_old_duration= $this->timespent_duration;
+            $this->timespent_duration=$duration; 
+            if($update){
+                $this->timespent_id=$taskTime->id;
+                $this->timespent_date=$date;
+                if(isset(  $this->timespent_datehour))
+                {
+                     $this->timespent_datehour=$date;
+                }
+                if($new){// equi duration >0
+                    if( $this->addTimeSpent($user,0)>=0)
+                    {
+                        $ret++;
+                        $_SESSION['timeSpendCreated']++;
+                     }
+
+                }else if($duration==0){
+                        if( $this->delTimeSpent($user,0)>=0)
+                        {
+                            $ret++;
+                            $_SESSION['timeSpendDeleted']++;
+                        }
+                }else{
+                    if( $this->updateTimeSpent($user,0)>=0)
+                    {
+                        $ret++; 
+                        $_SESSION['timeSpendModified']++;
+                    }
+                }
+            }
+        }
+        if ($approval){
+            $ret+=$this->askApproval();
+            $_SESSION['approvalSent']++;
+        }
+        return $ret;
+      }  else {
+          return -1;
+      }
+      
+ }	
+ /*
+ * function to genegate the timesheet tab
+ * 
  *  @param    array(string)           $headers            array of the header to show
  *  @param    int              	$user                   user id to fetch the timesheets
  *  @param     int              	$yearWeek           timesheetweek
@@ -484,6 +639,7 @@ public function updateTimeUsed()
                     dol_syslog("Timesheet::timesheet.class.php task=".$row->id, LOG_DEBUG);
                     $row->getTaskInfo();
                     $row->getActuals($yearWeek,$userid); 
+                    $row->db=NULL;
                     $resArray[]=  serialize($row);
                     
             }
