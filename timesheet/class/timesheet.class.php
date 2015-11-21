@@ -15,10 +15,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-define('TIMESHEET_COLOR_PENDING', '#f0f0ff');
-define('TIMESHEET_COLOR_APPROVED', '#f0fff0');
+define('TIMESHEET_COLOR_PENDING', '#ffff00');
+define('TIMESHEET_COLOR_APPROVED', '#00ff00');
 define('TIMESHEET_COLOR_REJECTED', '#ff0000');
-define('TIMESHEET_COLOR_ERROR', '#f0ffff');
+define('TIMESHEET_COLOR_ERROR', '#0000ff');
+define('TIMESHEET_COLOR_SAVED', '#ff00ff');
 
 /*Class to handle a line of timesheet*/
 #require_once('mysql.class.php');
@@ -176,6 +177,37 @@ class timesheet extends Task
                 return -1;
         }
     }
+    
+        /*
+    * function to send a request for approval status of a ts
+    *  @param       $reject     int     1 if the approval is rejjected
+    *  @return     string              1-Success o-Error   
+    */ 
+
+    public function Approve( $reject){
+        if(($this->status=='PRENDING' ||$this->status== 'SAVED' )){
+            $sql='UPDATE '.MAIN_DB_PREFIX.'timesheet_approval';
+            $sql .= ' SET status="'.($reject?'REJECTED':'APPROVED').'"';
+            $sql .= ' WHERE fk_user='.$this->timespent_fk_user;
+            $sql .= ' AND fk_project_task='.$this->id;
+            $sql .= ' AND yearweek='.str_replace('W', '', $this->yearWeek).'\')';
+            $resql=$this->db->query($sql);
+            if ($resql)
+            {
+
+                    return 1;
+             }
+            else
+            {
+                    $this->error="Error ".$this->db->lasterror();
+                    dol_syslog(get_class($this)."::fetch ".$this->error, LOG_ERR);
+
+                    return -1;
+            }
+        }else
+            return -1;
+    }
+
     /*
     * function to send a request for approval status of a ts
     * 
@@ -337,6 +369,7 @@ class timesheet extends Task
                 }else {
                     $dayWorkLoad=date('H:i',mktime(0,0,$taskTime->duration));
                 }
+                
                 if($this->status=='REJECTED'){
                     $color=' background:'.TIMESHEET_COLOR_REJECTED.'; ';
                 }else if($this->status=='APPROVED'){
@@ -345,8 +378,8 @@ class timesheet extends Task
                 }else if($this->status=='PENDING'){
                     $color=' background:'.TIMESHEET_COLOR_PENDING.'; ';
                     $isOpened=false;
-                }else if($this->duration!=0){
-                    $color=' background:#00ffff; ';
+                }else if($taskTime->duration>0){
+                    $color=' background:'.TIMESHEET_COLOR_SAVED.'; ';
                 }
 
                 //if($hidden){
@@ -512,10 +545,12 @@ public function updateTimeUsed()
  *  @param    int              	$user                   user id to fetch the timesheets
  *  @param     int              	$updateTab      array with the new 
  *  @param     int              	$approval      0- don't ask, 1- ask for an approval 
- *  @return     array(string)                                             array of timesheet (serialized)
+ *  @param     string                   $note       approval comment
+ *  @return    int                                           result
  */
- function updateTimesheet($user,$updateTab,$approval=0){  
+ function updateTimesheet($user,$updateTab,$approval=0,$note=''){  
      $ret=0;
+     if(!empty($note))$this->timespent_note=$note;
      if(isset($updateTab) && is_array($updateTab)){
         foreach($this->taskTimeList  as $day => $taskTime){
             

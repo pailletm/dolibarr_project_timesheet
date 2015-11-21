@@ -49,6 +49,7 @@ $ajax               = GETPOST('ajax');
 $xml               = GETPOST('xml');
 $optioncss = GETPOST('optioncss','alpha');
 $tsAproval = GETPOST('tsApproval','int');
+$mode = GETPOST('mode','alpha');
 
 //$toDate                 = GETPOST('toDate');
 $toDate                 = GETPOST('toDate');
@@ -152,7 +153,12 @@ switch($action)
 $morejs=array("/timesheet/js/timesheetAjax.js","/timesheet/js/timesheet.js");
 llxHeader('',$langs->trans('Timesheet'),'','','','',$morejs);
 //calculate the week days
+$boss=1;
+if($boss==1){
+$head=Timesheet_prepare_head($yearWeek);
 
+dol_fiche_head($head,($mode=='approval')?'approval':'timesheet',$langs->trans('Timesheet'),0,'timesheet@timesheet');            
+}
 $tmstp=time();
 	 
 
@@ -242,8 +248,44 @@ $Form .= '</script>'."\n";
 
 
 print $Form;
-
+if($boss==1)dol_fiche_end();
 // End of page
 llxFooter();
 $db->close();
+
+function Timesheet_prepare_head($yearWeek)
+{
+    global $langs, $conf, $user;
+    $h = 0;
+    $head = array();
+
+    $head[$h][0] = $_SERVER["PHP_SELF"].'?action=list&yearWeek='.$yearWeek;
+    $head[$h][1] = $langs->trans("Timesheet");
+    $head[$h][2] = 'timesheet';
+    $h++;
+    $head[$h][0] = $_SERVER["PHP_SELF"].'?mode=approval&yearWeek='.$yearWeek;
+    $head[$h][1] = $langs->trans("Approval");
+    $head[$h][2] = 'approval';
+    $h++;
+    // Show more tabs from modules
+    // Entries must be declared in modules descriptor with line
+    // $this->tabs = array('entity:+tabname:Title:@timesheet:/timesheet/mypage.php?id=__ID__');   to add new tab
+    // $this->tabs = array('entity:-tabname);   												to remove a tab
+    complete_head_from_modules($conf,$langs,$object,$head,$h,'timesheet');
+    complete_head_from_modules($conf,$langs,$object,$head,$h,'timesheet','remove');
+    /*
+    $head[$h][0] = $_SERVER["PHP_SELF"].'?action=viewdoc&id='.$object->id;
+    $head[$h][1] = $langs->trans("Documents");
+    $head[$h][2] = 'documents';
+    $h++;
+    
+    $head[$h][0] = $_SERVER["PHP_SELF"].'?action=viewinfo&id='.$object->id;
+    $head[$h][1] = $langs->trans("Info");
+    $head[$h][2] = 'info';
+    $h++;
+     */
+     
+
+    return $head;
+}
 ?>
